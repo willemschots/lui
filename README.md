@@ -1,6 +1,6 @@
 # lui: Go convenience wrapper around net/http
 
-[![Build Status](http://img.shields.io/github/workflow/status/willemschots/lui/testing/main)][workflow]
+[![Build Status](http://img.shields.io/github/workflow/status/willemschots/lui/Testing/main)][workflow]
 [![Go Documentation](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)][godocs]
 
 [workflow]: https://github.com/willemschots/lui/actions
@@ -15,5 +15,5 @@ Lui is a convenience wrapper around net/http. It provides:
 
  ## Why 'lui'?
 
- 'Lui' means lazy in Dutch. Instead of implementing a server
+ 'Lui' means 'lazy' in Dutch. Instead of implementing a server
  for each project I can be lazy and use this package.
