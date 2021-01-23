@@ -1,7 +1,5 @@
-// Package lui is a convenience wrapper around net/http. It provides:
-// - Quick methods for setting up http/https servers
-// - Graceful shutdowns
-// - Optional config file support
+// Package lui is a convenience wrapper around net/http. It contains
+// functionality to quickly setup and run common http/https configurations.
 package lui
 
 import (
@@ -95,6 +93,8 @@ func New(handler http.Handler, options ...OptionFunc) (*Server, error) {
 	return s, nil
 }
 
+// ListenAndServe runs the server until it receives a kill signal
+// or one of the http servers fails
 func (s *Server) ListenAndServe() error {
 	if s.HTTP == nil {
 		return errors.New("http server is nil")
