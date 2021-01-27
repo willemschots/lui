@@ -1,10 +1,18 @@
 package lui_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -43,7 +51,7 @@ func TestNew(t *testing.T) {
 		},
 		"tls files": {
 			options: []lui.OptionFunc{
-				lui.TLSFiles("test/test.crt", "test/test.key"),
+				lui.TLSFiles("testdata/test.crt", "testdata/test.key"),
 			},
 			expect: &lui.Server{
 				ShutdownTimeout: time.Second * 30,
@@ -68,7 +76,7 @@ func TestNew(t *testing.T) {
 		},
 		"tls auto": {
 			options: []lui.OptionFunc{
-				lui.TLSAuto("info@example.org", "./test/autocert", "example.org"),
+				lui.TLSAuto("info@example.org", "./testdata/autocert", "example.org"),
 			},
 			expect: &lui.Server{
 				ShutdownTimeout: time.Second * 30,
@@ -88,7 +96,7 @@ func TestNew(t *testing.T) {
 					IdleTimeout:       time.Second * 60,
 				},
 			},
-			httpTest:  assertACMERedirectToHTTPS,
+			httpTest:  assertACMEDoesNotRedirect,
 			httpsTest: assertMainHandler,
 		},
 		"tls auto cert manager": {
@@ -118,7 +126,7 @@ func TestNew(t *testing.T) {
 					IdleTimeout:       time.Second * 60,
 				},
 			},
-			httpTest:  assertACMERedirectToHTTPS,
+			httpTest:  assertACMEDoesNotRedirect,
 			httpsTest: assertMainHandler,
 		},
 		"http address": {
@@ -140,7 +148,7 @@ func TestNew(t *testing.T) {
 		},
 		"https address": {
 			options: []lui.OptionFunc{
-				lui.TLSFiles("test/test.crt", "test/test.key"),
+				lui.TLSFiles("testdata/test.crt", "testdata/test.key"),
 				lui.HTTPSAddr(":4438"),
 			},
 			expect: &lui.Server{
@@ -183,7 +191,7 @@ func TestNew(t *testing.T) {
 		},
 		"read timeout": {
 			options: []lui.OptionFunc{
-				lui.TLSFiles("test/test.crt", "test/test.key"),
+				lui.TLSFiles("testdata/test.crt", "testdata/test.key"),
 				lui.ReadTimeout(time.Millisecond * 30),
 			},
 			expect: &lui.Server{
@@ -209,7 +217,7 @@ func TestNew(t *testing.T) {
 		},
 		"read header timeout": {
 			options: []lui.OptionFunc{
-				lui.TLSFiles("test/test.crt", "test/test.key"),
+				lui.TLSFiles("testdata/test.crt", "testdata/test.key"),
 				lui.ReadHeaderTimeout(time.Millisecond * 30),
 			},
 			expect: &lui.Server{
@@ -235,7 +243,7 @@ func TestNew(t *testing.T) {
 		},
 		"write timeout": {
 			options: []lui.OptionFunc{
-				lui.TLSFiles("test/test.crt", "test/test.key"),
+				lui.TLSFiles("testdata/test.crt", "testdata/test.key"),
 				lui.WriteTimeout(time.Millisecond * 30),
 			},
 			expect: &lui.Server{
@@ -261,7 +269,7 @@ func TestNew(t *testing.T) {
 		},
 		"idle timeout": {
 			options: []lui.OptionFunc{
-				lui.TLSFiles("test/test.crt", "test/test.key"),
+				lui.TLSFiles("testdata/test.crt", "testdata/test.key"),
 				lui.IdleTimeout(time.Millisecond * 30),
 			},
 			expect: &lui.Server{
@@ -289,6 +297,7 @@ func TestNew(t *testing.T) {
 
 	for test, tc := range tt {
 		t.Run(test, func(t *testing.T) {
+			setupTLSFiles(t, "testdata/test.crt", "testdata/test.key")
 			srv, err := lui.New(mainHandler, tc.options...)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -304,6 +313,7 @@ func TestNew(t *testing.T) {
 				tc.httpsTest(t, srv.HTTPS.Handler)
 			}
 		})
+
 	}
 }
 
@@ -382,17 +392,6 @@ func assertTLSConfig(t *testing.T, expect, x *tls.Config) {
 	}
 }
 
-func assertMainHandlerResponse(t *testing.T, rec *httptest.ResponseRecorder) {
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status %v but got %v", http.StatusOK, rec.Code)
-	}
-
-	body := string(rec.Body.Bytes())
-	if body != "ok" {
-		t.Errorf("expected body %v but got %v", "ok", body)
-	}
-}
-
 func assertMainHandler(t *testing.T, handler http.Handler) {
 	w := httptest.NewRecorder()
 	r, err := http.NewRequest(http.MethodGet, "https://example.com/", nil)
@@ -404,7 +403,7 @@ func assertMainHandler(t *testing.T, handler http.Handler) {
 		t.Errorf("expected status %v but got %v", http.StatusOK, w.Code)
 	}
 
-	body := string(w.Body.Bytes())
+	body := w.Body.String()
 	if body != "ok" {
 		t.Errorf("expected body %v but got %v", "ok", body)
 	}
@@ -455,7 +454,7 @@ func assertRedirectToHTTPS(t *testing.T, handler http.Handler) {
 	}
 }
 
-func assertACMERedirectToHTTPS(t *testing.T, handler http.Handler) {
+func assertACMEDoesNotRedirect(t *testing.T, handler http.Handler) {
 	assertRedirectToHTTPS(t, handler)
 
 	w := httptest.NewRecorder()
@@ -474,4 +473,68 @@ func assertNoErr(t *testing.T, err error) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+// setupTLSFiles creates the self signed private key and certificate
+func setupTLSFiles(t *testing.T, certPath, keyPath string) {
+	private, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Organization"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	cert, err := x509.CreateCertificate(rand.Reader, template, template, &private.PublicKey, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certFile, err := os.Create(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer certFile.Close()
+
+	err = pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: cert})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keyData, err := x509.MarshalECPrivateKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keyFile, err := os.Create(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyFile.Close()
+
+	err = pem.Encode(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyData})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		err = os.Remove(certPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = os.Remove(keyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }

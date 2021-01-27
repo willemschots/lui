@@ -16,4 +16,4 @@ Lui is a convenience wrapper around net/http. It provides:
  ## Why 'lui'?
 
  'Lui' means 'lazy' in Dutch. Instead of implementing a server
- for each project I can be lazy and use this package.
+ for each project you can be lazy and use this package.
