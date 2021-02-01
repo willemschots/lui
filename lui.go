@@ -86,7 +86,7 @@ func New(handler http.Handler, options ...OptionFunc) (*Server, error) {
 		}
 	}
 
-	if s.runHTTPS == false {
+	if !s.runHTTPS {
 		s.HTTPS = nil
 	}
 
@@ -126,7 +126,7 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) waitForShutdown() error {
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 
 	shutdownWG := &sync.WaitGroup{}
